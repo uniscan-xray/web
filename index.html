@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UniScan · Container X-ray AI — Inspection Console</title>
+<style>
+  :root {
+    --bg:       #0b1120;
+    --panel:    #111827;
+    --panel2:   #1a2436;
+    --line:     #1f2d42;
+    --ink:      #e2ecf8;
+    --muted:    #7a96b8;
+    --hi:       #ff4d5e;
+    --med:      #f59e0b;
+    --lo:       #22d3a5;
+    --accent:   #4f8ef7;
+    --accent2:  #7c5cfc;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family: 'Inter', -apple-system, Segoe UI, sans-serif;
+         background:var(--bg); color:var(--ink); min-height:100vh; }
+
+  /* ── HEADER ── */
+  header {
+    display:flex; align-items:center; gap:14px;
+    padding:12px 24px;
+    background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  .logo { font-size:15px; font-weight:700; letter-spacing:.3px; }
+  .logo span { color:var(--accent); }
+  .tag {
+    font-size:10px; color:var(--muted);
+    border:1px solid var(--line); padding:2px 9px;
+    border-radius:20px; white-space:nowrap;
+  }
+  .tag.warn { background:rgba(245,158,11,.15); color:var(--med); border-color:var(--med); }
+  .ml-auto { margin-left:auto; }
+
+  /* ── BANNER ── */
+  #banner {
+    margin:10px 24px; border-radius:10px; padding:0 20px;
+    height:0; overflow:hidden; opacity:0;
+    display:flex; align-items:center; gap:14px; font-weight:800;
+    transition:height .3s, opacity .3s;
+  }
+  #banner.show { height:58px; opacity:1; margin-bottom:0; }
+  #banner .bi { font-size:26px; }
+  #banner .bt { font-size:18px; letter-spacing:.2px; }
+  #banner .bs { font-size:12px; font-weight:500; opacity:.8; margin-left:auto; }
+  #banner.red   { background:linear-gradient(90deg,rgba(255,77,94,.25),rgba(255,77,94,.07));
+                  border:1px solid var(--hi); color:#ff8a94;
+                  animation:pulse 1.2s ease-in-out infinite; }
+  #banner.green { background:linear-gradient(90deg,rgba(34,211,165,.2),rgba(34,211,165,.06));
+                  border:1px solid var(--lo); color:#5fe0c0; }
+  #banner.amber { background:linear-gradient(90deg,rgba(245,158,11,.22),rgba(245,158,11,.07));
+                  border:1px solid var(--med); color:#fbbf5a; }
+  @keyframes pulse {
+    0%,100%{ box-shadow:0 0 0 0 rgba(255,77,94,0); }
+    50%    { box-shadow:0 0 0 8px rgba(255,77,94,.15); }
+  }
+
+  /* ── LAYOUT ── */
+  .wrap {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    gap:14px; padding:14px 24px;
+  }
+  @media(max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+
+  /* ── PANELS ── */
+  .panel {
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:16px;
+  }
+  .panel-title {
+    font-size:10px; font-weight:700; letter-spacing:1px;
+    color:var(--muted); text-transform:uppercase; margin-bottom:12px;
+  }
+
+  /* ── GALLERY (container list) ── */
+  #gallery {
+    display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;
+  }
+  .gal-item {
+    position:relative; cursor:pointer;
+    border:2px solid var(--line); border-radius:8px; overflow:hidden;
+    transition:border-color .2s, transform .15s;
+  }
+  .gal-item:hover  { border-color:var(--accent); transform:scale(1.04); }
+  .gal-item.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(79,142,247,.25); }
+  .gal-item img { width:68px; height:52px; object-fit:cover; display:block; }
+  .gal-item .cid {
+    position:absolute; bottom:0; left:0; right:0;
+    background:rgba(0,0,0,.65); font-size:8px; color:#fff;
+    text-align:center; padding:1px 0; letter-spacing:.3px;
+  }
+  /* QR scan overlay */
+  .gal-item .scan-bar {
+    position:absolute; top:0; left:0; right:0; height:3px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);
+    opacity:0; animation:none;
+  }
+  .gal-item.scanning .scan-bar {
+    opacity:1;
+    animation:scanDown .6s linear forwards;
+  }
+  @keyframes scanDown {
+    0%  { top:0;   }
+    100%{ top:100%; opacity:0; }
+  }
+
+  /* ── X-RAY STAGE ── */
+  .stage {
+    position:relative; border-radius:8px; overflow:hidden;
+    border:1px solid var(--line); background:#040a14;
+    min-height:120px;
+  }
+  .stage canvas { display:block; width:100%; }
+  .stage-placeholder {
+    display:flex; flex-direction:column; align-items:center;
+    justify-content:center; height:180px; color:var(--muted); gap:8px;
+    font-size:13px;
+  }
+  .stage-placeholder .icon { font-size:36px; opacity:.4; }
+
+  #riskBox { margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .risk {
+    display:inline-block; padding:4px 13px; border-radius:20px;
+    font-weight:700; font-size:12px;
+  }
+  .HIGH   { background:rgba(255,77,94,.15);  color:var(--hi);  border:1px solid var(--hi); }
+  .MEDIUM { background:rgba(245,158,11,.15); color:var(--med); border:1px solid var(--med); }
+  .LOW    { background:rgba(34,211,165,.15); color:var(--lo);  border:1px solid var(--lo); }
+
+  /* ── MANIFEST CARD ── */
+  #manifestCard {
+    background:var(--panel2); border:1px solid var(--line);
+    border-radius:10px; padding:13px 15px; margin-bottom:14px;
+    transition:all .3s;
+  }
+  .manifest-header {
+    display:flex; align-items:center; gap:10px; margin-bottom:10px;
+  }
+  .container-badge {
+    font-size:13px; font-weight:700; color:var(--accent);
+    letter-spacing:.5px;
+  }
+  .manifest-source {
+    font-size:9px; color:var(--lo); border:1px solid var(--lo);
+    padding:1px 7px; border-radius:10px; margin-left:auto;
+  }
+  .manifest-meta {
+    display:grid; grid-template-columns:1fr 1fr;
+    gap:4px 16px; font-size:11px; color:var(--muted);
+    margin-bottom:10px;
+  }
+  .manifest-meta strong { color:var(--ink); }
+  .hs-table { width:100%; border-collapse:collapse; font-size:11.5px; }
+  .hs-table th {
+    color:var(--muted); font-weight:600; font-size:10px;
+    text-align:left; padding:4px 6px; border-bottom:1px solid var(--line);
+  }
+  .hs-table td { padding:5px 6px; border-bottom:1px solid rgba(255,255,255,.04); }
+  .hs-code { font-family:monospace; color:var(--accent); font-size:11px; }
+
+  /* idle state */
+  #manifestCard.idle .manifest-idle { display:flex; }
+  #manifestCard.idle .manifest-data { display:none; }
+  #manifestCard.loaded .manifest-idle { display:none; }
+  #manifestCard.loaded .manifest-data { display:block; }
+  .manifest-idle {
+    align-items:center; justify-content:center;
+    color:var(--muted); font-size:12px; gap:8px; padding:10px 0;
+  }
+
+  /* ── TABLES ── */
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+  th, td { text-align:left; padding:5px 7px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+  .pill { font-size:10px; padding:1px 7px; border-radius:10px; }
+  .ok  { background:rgba(34,211,165,.15); color:var(--lo); }
+  .bad { background:rgba(255,77,94,.15);  color:var(--hi); }
+  .muted { color:var(--muted); font-size:11px; }
+
+  /* ── HISTORY ── */
+  .hist { max-height:190px; overflow-y:auto; }
+  .hist::-webkit-scrollbar { width:4px; }
+  .hist::-webkit-scrollbar-thumb { background:var(--line); border-radius:4px; }
+
+  /* ── DIVIDER ── */
+  .section { margin-top:14px; }
+
+  /* ── LOADING SPINNER ── */
+  .spinner {
+    display:inline-block; width:12px; height:12px;
+    border:2px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; animation:spin .7s linear infinite;
+    vertical-align:middle; margin-right:5px;
+  }
+  @keyframes spin { to{ transform:rotate(360deg); } }
+
+  /* ── MATCH BOX ── */
+  #matchBox { font-size:12px; }
+  #matchBox .overall {
+    display:flex; align-items:center; gap:8px;
+    padding:8px 10px; border-radius:8px; margin-bottom:8px;
+    font-weight:600;
+  }
+  #matchBox .overall.match   { background:rgba(34,211,165,.1); color:var(--lo); border:1px solid rgba(34,211,165,.3); }
+  #matchBox .overall.mismatch{ background:rgba(255,77,94,.1);  color:var(--hi); border:1px solid rgba(255,77,94,.3); }
+  #matchBox .overall .score { margin-left:auto; font-size:11px; opacity:.8; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Uni<span>Scan</span> · Container X-ray AI</div>
+  <span class="tag">Threat Detection + Cargo Matching</span>
+  <span class="tag">Decision Support — Final Judgment: Customs</span>
+  <span class="tag ml-auto" id="staticBadge" style="background:rgba(245,158,11,.15);color:#f59e0b;border-color:#f59e0b;">STATIC DEMO</span>
+</header>
+
+<div id="banner"></div>
+
+<div class="wrap">
+
+  <!-- ══ LEFT PANEL: X-ray viewer ══ -->
+  <div class="panel">
+    <div class="panel-title">① Select Container to Scan</div>
+    <div id="gallery"></div>
+
+    <div class="panel-title" style="margin-top:4px">② X-ray Image &amp; Detection</div>
+    <div class="stage" id="stage">
+      <div class="stage-placeholder" id="stagePlaceholder">
+        <div class="icon">🔍</div>
+        <div>Click a container above to begin inspection</div>
+      </div>
+      <canvas id="cv" style="display:none"></canvas>
+    </div>
+    <div id="riskBox" style="margin-top:10px"></div>
+
+    <div class="section">
+      <div class="panel-title">③ Object Detection Results</div>
+      <table id="detTable">
+        <thead><tr><th>Class</th><th>Confidence</th><th>BBox (xyxy)</th></tr></thead>
+        <tbody><tr><td colspan="3" class="muted" style="padding:8px 7px">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ RIGHT PANEL: Manifest + Matching ══ -->
+  <div class="panel">
+
+    <!-- Customs Declaration -->
+    <div class="panel-title">④ Customs Declaration (Auto-loaded from EDI)</div>
+    <div id="manifestCard" class="idle">
+      <div class="manifest-idle" id="manifestIdle">
+        <span style="font-size:20px;opacity:.4">📄</span>
+        <span>Awaiting container scan…</span>
+      </div>
+      <div class="manifest-data" id="manifestData">
+        <div class="manifest-header">
+          <span class="container-badge" id="mContainerId">—</span>
+          <span class="manifest-source">✔ Auto-loaded · Customs EDI</span>
+        </div>
+        <div class="manifest-meta">
+          <div>Shipper: <strong id="mShipper">—</strong></div>
+          <div>Origin: <strong id="mOrigin">—</strong></div>
+          <div>Destination: <strong id="mDest">—</strong></div>
+          <div>Gross Weight: <strong id="mWeight">—</strong></div>
+        </div>
+        <table class="hs-table">
+          <thead><tr><th>HS Code</th><th>Description</th><th>Qty</th><th>Unit Price</th></tr></thead>
+          <tbody id="mItems"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cargo Matching -->
+    <div class="section">
+      <div class="panel-title">⑤ Cargo Matching — Declared vs. Scanned</div>
+      <div id="matchBox" class="muted" style="padding:8px 0">Awaiting scan…</div>
+    </div>
+
+    <!-- Inspection History -->
+    <div class="section">
+      <div class="panel-title">Inspection History</div>
+      <div class="hist">
+        <table id="histTable">
+          <thead><tr><th>ID</th><th>Container</th><th>Risk</th><th>Threats</th><th>Mismatch</th><th>Time</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.wrap -->
+
+<script>
+// ─── Manifest database (simulates Customs EDI / NACCS pull) ──────────────────
+const MANIFESTS = {
+  'data/demo/images/cargo_00.png': {
+    container_id:'TCKU-3045621', shipper:'Guangzhou Textile Co., Ltd.',
+    origin:'China (CN)', destination:'Cartagena, CO', weight:'2,340 kg',
+    items:[{hs:'6204.43',desc:"Women's Clothing",qty:'150 pcs',price:'$12.00'},
+           {hs:'6302.22',desc:'Woven Textile',qty:'200 kg',price:'$8.50'}]
+  },
+  'data/demo/images/cargo_01.png': {
+    container_id:'NYKU-4471203', shipper:'Ningbo Cotton Mills',
+    origin:'China (CN)', destination:'Buenaventura, CO', weight:'3,050 kg',
+    items:[{hs:'5208.21',desc:'Woven Cotton Fabric',qty:'1,200 m',price:'$1.80'},
+           {hs:'5209.42',desc:'Denim Fabric',qty:'800 m',price:'$2.40'}]
+  },
+  'data/demo/images/cargo_02.png': {
+    container_id:'UACU-5541823', shipper:'Yiwu Food Export Co.',
+    origin:'China (CN)', destination:'Cartagena, CO', weight:'3,200 kg',
+    items:[{hs:'1006.30',desc:'Milled Rice',qty:'2,000 kg',price:'$0.90'},
+           {hs:'2106.90',desc:'Food Preparations',qty:'500 kg',price:'$4.20'}]
+  },
+  'data/demo/images/cargo_03.png': {
+    container_id:'SEGU-8830142', shipper:'Andes Agro Export S.A.',
+    origin:'Colombia (CO)', destination:'Panama City, PA', weight:'4,180 kg',
+    items:[{hs:'0901.11',desc:'Green Coffee Beans',qty:'4,000 kg',price:'$3.10'},
+           {hs:'0801.32',desc:'Cashew Nuts',qty:'600 kg',price:'$6.40'}]
+  },
+  'data/demo/images/cargo_04.png': {
+    container_id:'HLXU-2934571', shipper:'Medellin Machinery Ltda.',
+    origin:'Colombia (CO)', destination:'Guayaquil, EC', weight:'5,600 kg',
+    items:[{hs:'8431.49',desc:'Machinery Parts',qty:'80 pcs',price:'$120.00'},
+           {hs:'7308.90',desc:'Steel Structures',qty:'1,200 kg',price:'$3.80'}]
+  },
+  'data/demo/images/cargo_05.png': {
+    container_id:'TEMU-6671240', shipper:'Bogota Auto Parts S.A.S.',
+    origin:'Colombia (CO)', destination:'Lima, PE', weight:'2,900 kg',
+    items:[{hs:'8708.99',desc:'Motor Vehicle Parts',qty:'400 pcs',price:'$18.00'},
+           {hs:'4011.10',desc:'Rubber Tyres',qty:'120 pcs',price:'$52.00'}]
+  },
+  'data/demo/images/cargo_06.png': {
+    container_id:'FCIU-4429310', shipper:'Cali Textiles Group',
+    origin:'Colombia (CO)', destination:'Colon, PA', weight:'1,430 kg',
+    items:[{hs:'6302.60',desc:'Cotton Towels',qty:'300 kg',price:'$5.10'},
+           {hs:'5205.22',desc:'Cotton Yarn',qty:'250 kg',price:'$3.30'}]
+  },
+  'data/demo/images/cargo_07.png': {
+    container_id:'APMU-3340192', shipper:'Barranquilla Trading Co.',
+    origin:'Colombia (CO)', destination:'Kingston, JM', weight:'1,760 kg',
+    items:[{hs:'3924.90',desc:'Plastic Household Articles',qty:'900 pcs',price:'$1.20'},
+           {hs:'6914.90',desc:'Ceramic Goods',qty:'400 pcs',price:'$3.60'}]
+  },
+};
+
+// ─── Deterministic per-image demo results (CargoX real container X-ray) ───────
+const M_OK  = (s1,s2,tk)=>({mismatch:false,mismatch_score:0.08,
+  declared:[{similarity:s1,matched:true},{similarity:s2,matched:true}],top_k:tk});
+const M_BAD = (s1,s2,tk,sc)=>({mismatch:true,mismatch_score:sc,
+  declared:[{similarity:s1,matched:false},{similarity:s2,matched:false}],top_k:tk});
+const MOCK_RESULTS = {
+  // 1 — clean textiles
+  'data/demo/images/cargo_00.png':{risk_level:'LOW',n_threats:0,detections:[],
+    matching:M_OK(0.86,0.82,[{label:'Woven textile',score:0.86},{label:'Apparel',score:0.80}])},
+  // 2 — clean cotton fabric
+  'data/demo/images/cargo_01.png':{risk_level:'LOW',n_threats:0,detections:[],
+    matching:M_OK(0.88,0.79,[{label:'Woven fabric',score:0.88},{label:'Cotton bale',score:0.79}])},
+  // 3 — CHASSIS concealment: declared cargo MATCHES, weapon hidden in undercarriage (outside container)
+  'data/demo/images/cargo_02.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Suspect object',confidence:0.86,bbox:[20,472,152,548],zone:'chassis'}],
+    concealment:{title:'Concealed Item — Vehicle Chassis (Outside Cargo)', sub:'Declared cargo matches · suspect item hidden in the undercarriage — vehicle inspection required', candidates:'Pistol 87% · Hand tool 73%'},
+    matching:M_OK(0.84,0.77,[{label:'Grain / rice sacks',score:0.84},{label:'Foodstuff',score:0.77}])},
+  // 4 — long blade concealed in coffee bales, declared coffee/nuts
+  'data/demo/images/cargo_03.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Bladed weapon',confidence:0.88,bbox:[177,377,431,583]}],
+    matching:M_BAD(0.19,0.24,[{label:'Machete / long blade',score:0.88},{label:'Crowbar',score:0.64}],0.79)},
+  // 5 — pointed blade among declared machinery parts
+  'data/demo/images/cargo_04.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Bladed weapon',confidence:0.89,bbox:[232,382,336,522]}],
+    matching:M_BAD(0.18,0.23,[{label:'Knife / dagger',score:0.89},{label:'Metal tool',score:0.67}],0.82)},
+  // 6 — auto-parts bulk matches, but a localized dense mass is concealed among the load (anomaly, not a single weapon)
+  'data/demo/images/cargo_05.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Concealed mass',confidence:0.78,bbox:[175,205,325,345],zone:'anomaly'}],
+    concealment:{title:'Concealed Anomaly — Within Declared Cargo', sub:'Auto-parts load matches · a localized dense mass differs from the surrounding parts — inspection required', candidates:'Dense organic mass 71% · Contraband bundle 58%'},
+    matching:M_OK(0.82,0.75,[{label:'Machined metal parts',score:0.82},{label:'Auto components',score:0.75}])},
+  // 7 — small blade in cotton bales, declared cotton goods
+  'data/demo/images/cargo_06.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Bladed weapon',confidence:0.87,bbox:[41,635,165,697]}],
+    matching:M_BAD(0.22,0.28,[{label:'Knife / blade',score:0.87},{label:'Metal sliver',score:0.55}],0.74)},
+  // 8 — elongated metal tool, declared plastic/ceramic goods
+  'data/demo/images/cargo_07.png':{risk_level:'HIGH',n_threats:1,
+    detections:[{cls:'Metal tool',confidence:0.85,bbox:[60,515,246,586]}],
+    matching:M_BAD(0.20,0.25,[{label:'Wrench',score:0.85},{label:'Pry bar',score:0.72}],0.78)},
+};
+
+// ─── API (real or mock) ──────────────────────────────────────────────────────
+async function api(path, opts){
+  // ── Static mock – no server needed ──────────────────────────────
+  const SAMPLE_IMAGES = ["data/demo/images/cargo_00.png", "data/demo/images/cargo_01.png", "data/demo/images/cargo_02.png", "data/demo/images/cargo_03.png", "data/demo/images/cargo_04.png", "data/demo/images/cargo_05.png", "data/demo/images/cargo_06.png", "data/demo/images/cargo_07.png"];
+  const HISTORY       = [
+  {
+    "id": 9,
+    "container_id": "TCKU-3045621",
+    "risk_level": "LOW",
+    "n_threats": 0,
+    "mismatch": false,
+    "time": "10:43:12"
+  },
+  {
+    "id": 8,
+    "container_id": "NYKU-4471203",
+    "risk_level": "LOW",
+    "n_threats": 0,
+    "mismatch": false,
+    "time": "10:41:55"
+  },
+  {
+    "id": 7,
+    "container_id": "UACU-5541823",
+    "risk_level": "HIGH",
+    "n_threats": 1,
+    "mismatch": false,
+    "time": "10:39:20"
+  },
+  {
+    "id": 6,
+    "container_id": "SEGU-8830142",
+    "risk_level": "HIGH",
+    "n_threats": 1,
+    "mismatch": true,
+    "time": "10:37:41"
+  },
+  {
+    "id": 5,
+    "container_id": "HLXU-2934571",
+    "risk_level": "HIGH",
+    "n_threats": 1,
+    "mismatch": true,
+    "time": "10:35:09"
+  },
+  {
+    "id": 4,
+    "container_id": "TEMU-6671240",
+    "risk_level": "HIGH",
+    "n_threats": 1,
+    "mismatch": false,
+    "time": "10:32:48"
+  }
+];
+  if(path.startsWith('/health'))  return {detector:'YOLOv8n', matcher:'CLIP'};
+  if(path.startsWith('/samples')) return SAMPLE_IMAGES;
+  if(path.startsWith('/history')) return HISTORY.map(h => ({...h, created_at:h.time}));
+  if(path.startsWith('/inspect')){
+    const body = JSON.parse(opts.body);
+    return (typeof MOCK_RESULTS !== 'undefined' && MOCK_RESULTS[body.image_path]) || {};
+  }
+  return {};
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const COLORS = ['#4f8ef7','#ff4d5e','#22d3a5','#f59e0b','#c084fc','#f97316','#38bdf8'];
+// conf(): cosine similarity (0–1) → display percentage
+// matched items (sim ~0.7–0.9) → 70–90%, mismatches (sim ~0.1–0.2) → 10–20%
+function conf(sim){ return Math.round(sim * 100); }
+
+// ─── Gallery ─────────────────────────────────────────────────────────────────
+let currentImg = null;
+
+async function loadGallery(){
+  const imgs = await api('/samples?limit=12');
+  const g = document.getElementById('gallery');
+  g.innerHTML = '';
+  imgs.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'gal-item';
+    wrap.dataset.path = p;
+
+    const scanBar = document.createElement('div');
+    scanBar.className = 'scan-bar';
+
+    const im = document.createElement('img');
+    im.src = p;
+    im.alt = 'Container ' + (i+1);
+
+    // Container ID label
+    const cid = document.createElement('div');
+    cid.className = 'cid';
+    const manifest = MANIFESTS[p];
+    cid.textContent = manifest ? manifest.container_id.split('-')[0]+'-···' : 'CTR-'+String(i).padStart(3,'0');
+
+    wrap.appendChild(scanBar);
+    wrap.appendChild(im);
+    wrap.appendChild(cid);
+    wrap.onclick = () => selectContainer(wrap, p);
+    g.appendChild(wrap);
+  });
+}
+
+function selectContainer(wrap, imgPath) {
+  // Update active state
+  document.querySelectorAll('.gal-item').forEach(el => el.classList.remove('active','scanning'));
+  wrap.classList.add('active', 'scanning');
+  setTimeout(() => wrap.classList.remove('scanning'), 700);
+
+  currentImg = imgPath;
+  document.getElementById('imgPath').value = imgPath;
+  runInspect();
+}
+
+// ─── Manifest panel ──────────────────────────────────────────────────────────
+function renderManifest(imgPath) {
+  const card = document.getElementById('manifestCard');
+  const manifest = MANIFESTS[imgPath];
+  if (!manifest) { card.className = 'idle'; return; }
+
+  document.getElementById('mContainerId').textContent = manifest.container_id;
+  document.getElementById('mShipper').textContent     = manifest.shipper;
+  document.getElementById('mOrigin').textContent      = manifest.origin;
+  document.getElementById('mDest').textContent        = manifest.destination;
+  document.getElementById('mWeight').textContent      = manifest.weight;
+
+  const tbody = document.getElementById('mItems');
+  tbody.innerHTML = manifest.items.map(it =>
+    `<tr>
+       <td><span class="hs-code">${it.hs}</span></td>
+       <td>${it.desc}</td>
+       <td class="muted">${it.qty}</td>
+       <td class="muted">${it.price}</td>
+     </tr>`
+  ).join('');
+
+  card.className = 'loaded';
+}
+
+// ─── Inspection ───────────────────────────────────────────────────────────────
+async function runInspect(){
+  const imgPath = document.getElementById('imgPath').value.trim();
+  if (!imgPath) return;
+
+  // Show manifest immediately (EDI auto-load)
+  renderManifest(imgPath);
+
+  let res = MOCK_RESULTS[imgPath];
+  if (!res) {
+    try {
+      res = await api('/inspect', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({image_path: imgPath, declared_terms: null})
+      });
+    } catch(e) { return; }
+  }
+
+  drawResult(imgPath, res);
+  renderRisk(res);
+  renderDetections(res);
+  renderMatch(res, imgPath);
+  setBanner(res);
+  addHistory(res, imgPath);
+}
+
+// ─── Draw X-ray + bounding boxes ─────────────────────────────────────────────
+function drawResult(imgPath, res){
+  const placeholder = document.getElementById('stagePlaceholder');
+  const cv = document.getElementById('cv');
+  placeholder.style.display = 'none';
+  cv.style.display = 'block';
+  const ctx = cv.getContext('2d');
+  const img = new Image();
+  img.onload = () => {
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+    (res.detections||[]).forEach((d,i) => {
+      const [x1,y1,x2,y2] = d.bbox;
+      const c = d.zone ? '#f59e0b' : COLORS[i % COLORS.length];
+      const lw = Math.max(2, cv.width/200);
+      ctx.lineWidth = lw; ctx.strokeStyle = c;
+      if (d.zone) ctx.setLineDash([lw*3, lw*2]);
+      ctx.strokeRect(x1, y1, x2-x1, y2-y1);
+      ctx.setLineDash([]);
+      const fs = Math.max(13, cv.width/38);
+      ctx.font = `bold ${fs}px sans-serif`;
+      const label = `${d.zone?'⚠ '+d.zone.toUpperCase()+' · ':''}${d.cls}  ${(d.confidence*100).toFixed(1)}%`;
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = c + 'cc';
+      ctx.fillRect(x1, Math.max(0,y1-fs-6), tw+10, fs+6);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x1+5, Math.max(fs, y1-4));
+    });
+  };
+  img.src = imgPath;
+}
+
+// ─── Risk badge ───────────────────────────────────────────────────────────────
+function renderRisk(res){
+  document.getElementById('riskBox').innerHTML =
+    `<span class="risk ${res.risk_level}">Risk: ${res.risk_level}</span>
+     <span class="muted">${res.n_threats} threat(s) detected</span>`;
+}
+
+// ─── Detection table ──────────────────────────────────────────────────────────
+function renderDetections(res){
+  const tb = document.querySelector('#detTable tbody');
+  tb.innerHTML = '';
+  const dets = res.detections || [];
+  if (!dets.length) {
+    tb.innerHTML = '<tr><td colspan="3" class="muted">No threats detected</td></tr>';
+    return;
+  }
+  dets.forEach(d => {
+    tb.innerHTML += `<tr>
+      <td><strong>${d.cls}</strong></td>
+      <td>${(d.confidence*100).toFixed(1)}%</td>
+      <td class="muted">${d.bbox.map(v=>Math.round(v)).join(', ')}</td>
+    </tr>`;
+  });
+}
+
+// ─── Cargo matching panel ─────────────────────────────────────────────────────
+function renderMatch(res, imgPath){
+  const box = document.getElementById('matchBox');
+  const manifest = MANIFESTS[imgPath];
+  const m = res.matching;
+
+  if (!m) {
+    box.innerHTML = '<span class="muted">No matching data available.</span>';
+    return;
+  }
+
+  const overallCls  = m.mismatch ? 'mismatch' : 'match';
+  const overallIcon = m.mismatch ? '⚠' : '✓';
+  const overallText = m.mismatch ? 'Declaration Mismatch Detected' : 'Declaration Matched';
+  const score       = m.mismatch ? `Mismatch score: ${Math.round(m.mismatch_score*100)}%` : `Consistency: ${Math.round((1-m.mismatch_score)*100)}%`;
+
+  // Build declared items rows (from manifest if available, else from m.declared)
+  const declaredItems = manifest ? manifest.items.map((it, i) => {
+    const d = m.declared[i] || {term: it.desc, similarity: 0.5, matched: false};
+    return {...d, term: `${it.hs} · ${it.desc}`};
+  }) : m.declared;
+
+  // Top-K scan estimates
+  const topk = (m.top_k || []).map(t => `${t.label} (${Math.round(t.score*100)}%)`).join(', ');
+
+  box.innerHTML = `
+    <div class="overall ${overallCls}">
+      <span style="font-size:18px">${overallIcon}</span>
+      <span>${overallText}</span>
+      <span class="score">${score}</span>
+    </div>
+    <table>
+      <thead><tr><th>Declared Item (HS·Desc)</th><th>Match Score</th><th>Verdict</th></tr></thead>
+      <tbody>
+        ${declaredItems.map(d => `
+          <tr>
+            <td>${d.term}</td>
+            <td>${conf(d.similarity)}%</td>
+            <td><span class="pill ${d.matched?'ok':'bad'}">${d.matched?'Match':'Mismatch'}</span></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="muted" style="margin-top:6px">
+      AI scan estimates — Top-K: ${topk}
+    </div>
+    ${res.concealment ? `
+    <div style="margin-top:10px;padding:8px 10px;border:1px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.10)">
+      <span style="color:#f59e0b;font-weight:700">⚠ Separate alert · ${res.concealment.title}</span>
+      <span class="muted"> — ${res.concealment.sub}. Scan estimate: ${res.concealment.candidates}. Flagged separately (not a declaration mismatch).</span>
+    </div>` : ''}`;
+}
+
+// ─── Verdict banner ───────────────────────────────────────────────────────────
+function setBanner(res){
+  const b = document.getElementById('banner');
+  const m = res.matching;
+  let cls='green', icon='✓', title='Declaration Matched — Cleared', sub='Declared items match the scanned content';
+  if (res.concealment){
+    cls='red'; icon='⚠'; title=res.concealment.title; sub=res.concealment.sub;
+  } else if (res.risk_level==='HIGH'){
+    cls='red'; icon='⚠'; title='Declaration Mismatch — Manual Inspection Required';
+    sub='Declared items differ from scanned content · Threat detected';
+  } else if (res.risk_level==='MEDIUM'){
+    cls='amber'; icon='!'; title='Caution — Verification Required';
+    sub = (m && m.mismatch) ? 'Suspected mismatch with declared cargo' : 'Threat detected — Verify against declaration';
+  }
+  b.className=''; void b.offsetWidth;
+  b.className = cls + ' show';
+  b.innerHTML = `<span class="bi">${icon}</span><span class="bt">${title}</span><span class="bs">${sub}</span>`;
+}
+
+// ─── History ──────────────────────────────────────────────────────────────────
+const historyRows = [];
+function addHistory(res, imgPath){
+  const manifest = MANIFESTS[imgPath];
+  const cid = manifest ? manifest.container_id : imgPath.split('/').pop();
+  historyRows.unshift({
+    id: res.id || Math.floor(Math.random()*9000+1000),
+    container: cid,
+    risk_level: res.risk_level,
+    n_threats: res.n_threats,
+    mismatch: res.matching ? res.matching.mismatch : false,
+    time: new Date().toLocaleTimeString()
+  });
+  renderHistory();
+}
+
+async function loadHistory(){
+  try {
+    const rows = await api('/history?limit=10');
+    const manifests = Object.entries(MANIFESTS);
+    rows.forEach((r,i) => {
+      const cid = manifests[i % manifests.length]?.[1]?.container_id || `CTR-${r.id}`;
+      historyRows.push({...r, container: cid, time: r.created_at || '—'});
+    });
+    renderHistory();
+  } catch(e){}
+}
+
+function renderHistory(){
+  const tb = document.querySelector('#histTable tbody');
+  tb.innerHTML = '';
+  historyRows.slice(0,15).forEach(r => {
+    tb.innerHTML += `<tr>
+      <td class="muted">${r.id}</td>
+      <td style="font-size:10px;font-family:monospace">${r.container}</td>
+      <td><span class="risk ${r.risk_level}" style="padding:1px 7px;font-size:10px">${r.risk_level}</span></td>
+      <td>${r.n_threats}</td>
+      <td>${r.mismatch ? '⚠️' : '—'}</td>
+      <td class="muted">${r.time}</td>
+    </tr>`;
+  });
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+loadGallery().then(() => setTimeout(() => {
+  const first = document.querySelector('.gal-item');
+  if(first) first.click();
+}, 350));
+loadHistory();
+</script>
+
+<!-- Hidden input kept for JS compatibility -->
+<input id="imgPath" type="hidden" value="">
+</body>
+</html>
